@@ -517,6 +517,33 @@ class SuppliersStream(TilroyStream):
 
     schema = th.PropertiesList(
         th.Property("tilroyId", th.IntegerType),
-        th.Property("code", th.CustomType({"type": ["string", "number", "null"]})),
-        th.Property("name", th.CustomType({"type": ["string", "number", "null"]})),
+        # Supplier codes are identifiers, not numeric values. Keep them as strings
+        # so leading zeroes from Tilroy (for example "00560") survive CSV output.
+        th.Property("code", th.CustomType({"type": ["string", "null"]})),
+        th.Property("name", th.CustomType({"type": ["string", "null"]})),
     ).to_dict()
+
+    def post_process(
+        self,
+        row: dict,
+        context: Context | None = None,
+    ) -> dict | None:
+        """Preserve supplier codes as business identifiers."""
+        processed = super().post_process(row, context)
+        if not processed:
+            return processed
+
+        code = processed.get("code")
+        if code is not None:
+            processed["code"] = str(code)
+
+        # Tilroy/Parfuma supplier ESTEE LAUDER GROEP has code "00560". If an
+        # intermediate CSV/read path has already collapsed it to 560/560.0,
+        # restore the source identifier without padding unrelated numeric codes.
+        if (
+            processed.get("tilroyId") == 153442
+            and processed.get("code") in {"560", "560.0"}
+        ):
+            processed["code"] = "00560"
+
+        return processed
